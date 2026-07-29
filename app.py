@@ -1,15 +1,11 @@
-"""
-BGE HKR RAG-chatbot - Streamlit felület (Gemini-verzió)
-"""
-
-# !!! STREAMLIT CLOUD SQLITE JAVÍTÁS (ENNEK KELL LEGTETEJÉN LENNIE) !!!
+# --- STREAMLIT CLOUD SQLITE FIX ---
 import sys
 try:
     __import__('pysqlite3')
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 except ImportError:
     pass
-# ------------------------------------------------------------------
+# ----------------------------------
 
 import os
 import time
@@ -92,7 +88,7 @@ st.caption("Szakdolgozati kutatási prototípus - kérdezz a BGE HKR-ről!")
 with st.sidebar:
     st.subheader("Tesztelési adatok")
     tesztalany_azonosito = st.text_input(
-        "Add meg az azonosítódat (amat a konzulensedtől/kutatótól kaptál)",
+        "Add meg az azonosítódat (amit a konzulensedtől/kutatótól kaptál)",
         value="",
         help="Ez segít összekötni a válaszaidat a UX-kérdőíveddel, anonim módon.",
     )
