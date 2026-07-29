@@ -11,3 +11,5 @@ huggingface-hub
 chromadb
 pypdf
 docx2txt
+torch
+torchvision
