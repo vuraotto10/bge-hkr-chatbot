@@ -1,6 +1,6 @@
+pysqlite3-binary
 streamlit
 python-dotenv
-pysqlite3-binary
 langchain-huggingface
 langchain-chroma
 langchain-google-genai
@@ -8,8 +8,11 @@ langchain-core
 langchain-community
 sentence-transformers
 huggingface-hub
-chromadb
+chromadb==1.5.9
 pypdf
 docx2txt
 torch
 torchvision
+pandas
+langsmith
+ 
