@@ -8,7 +8,7 @@ langchain-core
 langchain-community
 sentence-transformers
 huggingface-hub
-chromadb==1.5.9
+chromadb
 pypdf
 docx2txt
 torch
