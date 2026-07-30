@@ -8,13 +8,6 @@ except ImportError:
 # ----------------------------------
 
 import os
-import streamlit as st
-
-if "LANGCHAIN_API_KEY" in st.secrets:
-    os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
-    os.environ["LANGCHAIN_API_KEY"] = str(st.secrets["LANGCHAIN_API_KEY"]).strip()
-    os.environ["LANGCHAIN_PROJECT"] = str(st.secrets.get("LANGCHAIN_PROJECT", "bge-hkr-chatbot")).strip()
 import time
 import csv
 from datetime import datetime
