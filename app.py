@@ -40,7 +40,7 @@ def betoltes():
         persist_directory="chroma_db",
         embedding_function=embedding_modell,
     )
-    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", temperature=0)
     return vektortár, llm
 
 
