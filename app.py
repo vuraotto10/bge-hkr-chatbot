@@ -23,7 +23,7 @@ if "LANGCHAIN_API_KEY" in st.secrets:
     os.environ["LANGCHAIN_PROJECT"] = _langsmith_projekt
 
     os.environ["LANGSMITH_TRACING"] = "true"
-    os.environ["LANGCHAIN_ENDPOINT"] = "https://eu.api.smith.langchain.com"
+    os.environ["LANGSMITH_ENDPOINT"] = "https://eu.api.smith.langchain.com"
     os.environ["LANGSMITH_API_KEY"] = _langsmith_kulcs
     os.environ["LANGSMITH_PROJECT"] = _langsmith_projekt
 import time
