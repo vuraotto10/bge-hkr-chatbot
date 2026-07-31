@@ -11,10 +11,21 @@ import os
 import streamlit as st
 
 if "LANGCHAIN_API_KEY" in st.secrets:
+    _langsmith_kulcs = str(st.secrets["LANGCHAIN_API_KEY"]).strip()
+    _langsmith_projekt = str(st.secrets.get("LANGCHAIN_PROJECT", "bge-hkr-chatbot")).strip()
+
+    # Régi típusú (LANGCHAIN_*) ÉS új típusú (LANGSMITH_*) változónevek is
+    # beállítva - a telepített langsmith-verziótól függően az egyiket vagy
+    # a másikat keresi a könyvtár, így mindkettőt lefedjük.
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
     os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
-    os.environ["LANGCHAIN_API_KEY"] = str(st.secrets["LANGCHAIN_API_KEY"]).strip()
-    os.environ["LANGCHAIN_PROJECT"] = str(st.secrets.get("LANGCHAIN_PROJECT", "bge-hkr-chatbot")).strip()
+    os.environ["LANGCHAIN_API_KEY"] = _langsmith_kulcs
+    os.environ["LANGCHAIN_PROJECT"] = _langsmith_projekt
+
+    os.environ["LANGSMITH_TRACING"] = "true"
+    os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+    os.environ["LANGSMITH_API_KEY"] = _langsmith_kulcs
+    os.environ["LANGSMITH_PROJECT"] = _langsmith_projekt
 import time
 import csv
 from datetime import datetime
