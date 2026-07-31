@@ -18,12 +18,12 @@ if "LANGCHAIN_API_KEY" in st.secrets:
     # beállítva - a telepített langsmith-verziótól függően az egyiket vagy
     # a másikat keresi a könyvtár, így mindkettőt lefedjük.
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+    os.environ["LANGCHAIN_ENDPOINT"] = "https://eu.api.smith.langchain.com"
     os.environ["LANGCHAIN_API_KEY"] = _langsmith_kulcs
     os.environ["LANGCHAIN_PROJECT"] = _langsmith_projekt
 
     os.environ["LANGSMITH_TRACING"] = "true"
-    os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+    os.environ["LANGCHAIN_ENDPOINT"] = "https://eu.api.smith.langchain.com"
     os.environ["LANGSMITH_API_KEY"] = _langsmith_kulcs
     os.environ["LANGSMITH_PROJECT"] = _langsmith_projekt
 import time
