@@ -17,6 +17,23 @@ except ImportError:
     pass
 
 import os
+import warnings
+import logging
+
+# ==================================================================
+# LOGOK ÉS WARNINGOK TELJES NÉMÍTÁSA A TISZTA FUTÁSHOZ
+# ==================================================================
+# 1. ChromaDB telemetria (statisztikaküldés) kikapcsolása (ez oldja meg a capture() hibát)
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+# 2. Tokenizer párhuzamosítási warning kikapcsolása
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# 3. Python szintű figyelmeztetések (PyTorch, stb.) elrejtése
+warnings.filterwarnings("ignore")
+logging.getLogger("torch").setLevel(logging.ERROR)
+logging.getLogger("chromadb").setLevel(logging.ERROR)
+logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+# ==================================================================
+
 import time
 import csv
 from datetime import datetime
