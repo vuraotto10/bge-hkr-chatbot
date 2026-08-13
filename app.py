@@ -1,5 +1,5 @@
 """
-BGE HKR RAG-chatbot - Streamlit felület (Gemini-verzió)
+BGE HKR RAG-chatbot - Streamlit felület (Memóriatakarékos verzió)
 """
 
 import sys
@@ -13,7 +13,9 @@ import os
 import warnings
 import logging
 
+# Memória és erőforrás optimalizálás a Streamlit Cloud 1 GB-os limitjéhez
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 warnings.filterwarnings("ignore")
 logging.getLogger("chromadb").setLevel(logging.ERROR)
 
@@ -49,7 +51,7 @@ if "LANGCHAIN_API_KEY" in st.secrets:
         )
         _LANGSMITH_AKTIV = True
     except Exception as e:
-        print(f"LangSmith inicializálási hiba: {e}")
+        print(f"LangSmith hiba: {e}")
 
 st.set_page_config(page_title="BGE HKR Asszisztens", page_icon="🎓", layout="centered")
 
@@ -59,17 +61,20 @@ LOG_FAJL = "hasznalati_naplo.csv"
 
 @st.cache_resource
 def betoltes():
-    """Egyszer töltődik be a vektortár és a modell."""
-    # Ellenőrizzük, hogy létezik-e a chroma_db mappa
+    """Memóriatakarékos betöltés: CPU-ra kényszerítve, hogy ne lépje túl az 1 GB-ot."""
     if not os.path.exists("chroma_db"):
-        st.error("HIBA: A 'chroma_db' mappa nem található! Kérlek, töltsd fel a vektortár mappáját is a GitHubra.")
+        st.error("HIBA: A 'chroma_db' mappa nem található a GitHubon!")
         st.stop()
 
+    # CPU optimalizáció a memóriatúllépés elkerülésére
+    import torch
+    torch.set_num_threads(1)
+
     embedding_modell = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+        model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+        model_kwargs={"device": "cpu"}
     )
     
-    # Biztonságos Chroma inicializálás LangChain-Chroma csomaghoz
     vektortár = Chroma(
         persist_directory="chroma_db",
         embedding_function=embedding_modell
