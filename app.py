@@ -25,9 +25,11 @@ except ImportError:
 import os
 import warnings
 import logging
+from contextlib import contextmanager
 
 # Telemetria kikapcsolása és alapvető figyelmeztetések elrejtése
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["TOKENIZERS_PARALLELISM"] = "true" # SEBESSÉG VISSZAÁLLÍTÁSA!
 warnings.filterwarnings("ignore")
 logging.getLogger("chromadb").setLevel(logging.ERROR)
 
@@ -45,7 +47,24 @@ from langchain_core.prompts import ChatPromptTemplate
 load_dotenv()
 
 # ------------------------------------------------------------------
+# Erőszakos némítás a PyTorch "torch.classes" figyelmeztetése ellen
+# Ez a blokk ideiglenesen elnémítja a standard hibakimenetet
+# ------------------------------------------------------------------
+@contextmanager
+def suppress_stderr():
+    with open(os.devnull, "w") as devnull:
+        old_stderr = sys.stderr
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stderr = old_stderr
+
+
+# ------------------------------------------------------------------
 # LangSmith - explicit, kódból létrehozott kliens (EU-régió)
+# Nem környezeti változókra hagyatkozunk, hanem közvetlenül adjuk
+# meg az adatokat, hogy elkerüljük az elnevezés-inkonzisztenciákat.
 # ------------------------------------------------------------------
 _LANGSMITH_AKTIV = False
 _langsmith_tracer = None
@@ -72,16 +91,20 @@ if "LANGCHAIN_API_KEY" in st.secrets:
 # ------------------------------------------------------------------
 st.set_page_config(page_title="BGE HKR Asszisztens", page_icon="🎓", layout="centered")
 
-TOP_K = 5  
+TOP_K = 5  # ugyanaz az érték, mint a notebookban - tartsd konzisztensen
 LOG_FAJL = "hasznalati_naplo.csv"
 
 
 @st.cache_resource
 def betoltes():
     """Egyszer töltődik be a vektortár és a modell, nem minden kérdésnél újra."""
-    embedding_modell = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-    )
+    
+    # ITT HASZNÁLJUK A NÉMÍTÁST! Amíg betölt a modell, nem ír ki C++ hibákat.
+    with suppress_stderr():
+        embedding_modell = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+        )
+    
     vektortár = Chroma(
         persist_directory="chroma_db",
         embedding_function=embedding_modell,
@@ -217,7 +240,7 @@ with st.sidebar:
     st.markdown("---")
     with st.expander("🔒 Admin"):
         admin_jelszo = st.text_input("Jelszó", type="password", key="admin_jelszo")
-        elvart_jelszo = os.getenv("ADMIN_JELSZO", "") or st.secrets.get("ADMIN_JELSZO", "")
+        elvart_jelszo = os.getenv("ADMIN_JELSZO", "") or st.secrets.get("ADMIN_Jelszo", "")
 
         if admin_jelszo and elvart_jelszo and admin_jelszo == elvart_jelszo:
             if os.path.exists(LOG_FAJL):
