@@ -1,237 +1,552 @@
 """
-BGE HKR RAG-chatbot - Streamlit felület
-Szakdolgozati prototípus
-Futtatás: streamlit run app.py
+BGE HKR RAG-chatbot - Streamlit felület (Gemini-verzió)
+
+Ez a fájl a szakdolgozat prototípusának éles, hallgatók által
+tesztelhető felülete. A vektortárat (chroma_db mappa) előre el kell
+készíteni a 01_index_epites_es_teszt.ipynb notebook futtatásával,
+mielőtt ezt az appot elindítanád.
+
+Futtatás:
+streamlit run app.py
 """
 
 # ------------------------------------------------------------------
-# FONTOS: Ennek a blokknak a fájl LEGELEJÉN, minden más import előtt
-# kell lennie! A Streamlit Cloud alap sqlite3-verziója túl régi a
-# ChromaDB-hez, ezért lecseréljük pysqlite3-binary-ra.
+# FONTOS:
+# A Streamlit file watcher + PyTorch torch.classes együttese
+# "Tried to instantiate class '__path__._path'" hibát okozhat.
+#
+# A file watcher kikapcsolása ezt a problémát megszünteti.
+# Ennek a fájl LEGELEJÉN kell lennie, minden más import előtt.
+# ------------------------------------------------------------------
+import os
+
+os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
+
+# ------------------------------------------------------------------
+# ChromaDB / SQLite kompatibilitás
+#
+# Streamlit Cloud környezetben a beépített sqlite3 verziója
+# bizonyos esetekben túl régi lehet a ChromaDB számára.
+# Ezért pysqlite3-binary használata esetén lecseréljük az sqlite3-at.
 # ------------------------------------------------------------------
 import sys
+
 try:
     __import__("pysqlite3")
     sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 except ImportError:
     pass
 
-import os
+# ------------------------------------------------------------------
+# Alap importok
+# ------------------------------------------------------------------
 import warnings
 import logging
-
-# ==================================================================
-# LOGOK ÉS WARNINGOK TELJES NÉMÍTÁSA A TISZTA FUTÁSHOZ
-# ==================================================================
-# 1. ChromaDB telemetria (statisztikaküldés) kikapcsolása (ez oldja meg a capture() hibát)
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
-# 2. Tokenizer párhuzamosítási warning kikapcsolása
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-# 3. Python szintű figyelmeztetések (PyTorch, stb.) elrejtése
-warnings.filterwarnings("ignore")
-logging.getLogger("torch").setLevel(logging.ERROR)
-logging.getLogger("chromadb").setLevel(logging.ERROR)
-logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
-# ==================================================================
-
 import time
 import csv
 from datetime import datetime
 
 import streamlit as st
 from dotenv import load_dotenv
+
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
-load_dotenv()
 
 # ------------------------------------------------------------------
-# LangSmith - explicit, kódból létrehozott kliens (EU-régió)
+# Környezeti változók
+# ------------------------------------------------------------------
+load_dotenv()
+
+
+# ------------------------------------------------------------------
+# Telemetria és felesleges figyelmeztetések kikapcsolása
+# ------------------------------------------------------------------
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+
+warnings.filterwarnings("ignore")
+
+logging.getLogger("chromadb").setLevel(logging.ERROR)
+
+
+# ------------------------------------------------------------------
+# Streamlit oldal konfiguráció
+# ------------------------------------------------------------------
+st.set_page_config(
+    page_title="BGE HKR Asszisztens",
+    page_icon="🎓",
+    layout="centered"
+)
+
+
+# ------------------------------------------------------------------
+# Alapbeállítások
+# ------------------------------------------------------------------
+TOP_K = 5
+
+LOG_FAJL = "hasznalati_naplo.csv"
+
+
+# ------------------------------------------------------------------
+# LangSmith
+#
+# Ha a Streamlit Secrets között megtalálható a
+# LANGCHAIN_API_KEY, akkor bekapcsoljuk a LangSmith követést.
+# Ha nincs beállítva, az alkalmazás ettől még működik.
 # ------------------------------------------------------------------
 _LANGSMITH_AKTIV = False
 _langsmith_tracer = None
 
 if "LANGCHAIN_API_KEY" in st.secrets:
+
     try:
+
         from langsmith import Client as LangSmithClient
         from langchain_core.tracers.langchain import LangChainTracer
 
         _langsmith_client = LangSmithClient(
             api_url="https://eu.api.smith.langchain.com",
-            api_key=str(st.secrets["LANGCHAIN_API_KEY"]).strip(),
+            api_key=str(
+                st.secrets["LANGCHAIN_API_KEY"]
+            ).strip(),
         )
+
         _langsmith_tracer = LangChainTracer(
-            project_name=str(st.secrets.get("LANGCHAIN_PROJECT", "bge-hkr-chatbot")).strip(),
+            project_name=str(
+                st.secrets.get(
+                    "LANGCHAIN_PROJECT",
+                    "bge-hkr-chatbot"
+                )
+            ).strip(),
             client=_langsmith_client,
         )
+
         _LANGSMITH_AKTIV = True
+
     except Exception as e:
-        print(f"LangSmith inicializálási hiba: {e}")
+
+        print(
+            f"LangSmith inicializálási hiba: {e}"
+        )
+
 
 # ------------------------------------------------------------------
-# Alapbeállítások
+# Vektortár és Gemini modell betöltése
+#
+# @st.cache_resource miatt a modellek csak egyszer töltődnek be,
+# nem minden kérdés után újra.
 # ------------------------------------------------------------------
-st.set_page_config(page_title="BGE HKR Asszisztens", page_icon="🎓", layout="centered")
-
-TOP_K = 5  # Visszanyert szegmensek száma
-LOG_FAJL = "hasznalati_naplo.csv"
-
-
 @st.cache_resource
 def betoltes():
-    """Egyszer töltődik be a vektortár és a modell."""
+
+    # --------------------------------------------------------------
+    # Embedding modell
+    # --------------------------------------------------------------
     embedding_modell = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+        model_name=(
+            "sentence-transformers/"
+            "paraphrase-multilingual-mpnet-base-v2"
+        )
     )
+
+    # --------------------------------------------------------------
+    # ChromaDB vektortár
+    # --------------------------------------------------------------
     vektortár = Chroma(
         persist_directory="chroma_db",
         embedding_function=embedding_modell,
     )
-    
-    # A te Streamlit környezetedben futó modell beállítása
-    llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0)
-    
+
+    # --------------------------------------------------------------
+    # Google Gemini
+    # --------------------------------------------------------------
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-3.1-flash-lite",
+        temperature=0
+    )
+
     return vektortár, llm
 
 
+# ------------------------------------------------------------------
+# Modellek betöltése
+# ------------------------------------------------------------------
 vektortár, llm = betoltes()
 
-PROMPT_SABLON = ChatPromptTemplate.from_template("""
+
+# ------------------------------------------------------------------
+# RAG prompt
+# ------------------------------------------------------------------
+PROMPT_SABLON = ChatPromptTemplate.from_template(
+    """
 Te a Budapesti Gazdasági Egyetem (BGE) hallgatói asszisztense vagy.
-Kizárólag az alábbi, a Hallgatói Követelményrendszerből (HKR) származó
-szövegrészletek alapján válaszolj a hallgató kérdésére.
 
-Szabályok:
-- Ha a válasz egyértelműen megtalálható a szövegrészletekben, válaszolj
-  pontosan és tömören, magyar nyelven.
-- Ha a szövegrészletek nem tartalmaznak elegendő információt a válaszhoz,
-  ezt egyértelműen jelezd, és javasold, hogy a hallgató forduljon a
-  Tanulmányi Hivatalhoz. NE találj ki választ.
-- A válasz végén röviden jelezd, mely szövegrészlet alapján válaszoltál.
+Kizárólag az alábbi, a Hallgatói Követelményrendszerből (HKR)
+származó szövegrészletek alapján válaszolj a hallgató kérdésére.
 
-Szövegrészletek a HKR-ből:
----
-{kontextus}
----
+SZABÁLYOK:
 
-A hallgató kérdése: {kerdes}
+- Ha a válasz egyértelműen megtalálható a szövegrészletekben,
+  válaszolj pontosan és tömören, magyar nyelven.
 
-Válasz:
-""")
+- Ha a szövegrészletek nem tartalmaznak elegendő információt
+  a válaszhoz, ezt egyértelműen jelezd.
 
+- Ne találj ki információt.
 
-def naplozas(kerdes, valaszido_masodperc, tesztalany_azonosito):
-    """Minden kérdés-válasz párost elment CSV-fájlba."""
-    uj_fajl = not os.path.exists(LOG_FAJL)
-    with open(LOG_FAJL, "a", newline="", encoding="utf-8") as f:
-        iro = csv.writer(f)
-        if uj_fajl:
-            iro.writerow(["idobelyeg", "tesztalany_azonosito", "kerdes", "valaszido_masodperc"])
-        iro.writerow([datetime.now().isoformat(), tesztalany_azonosito, kerdes, round(valaszido_masodperc, 2)])
+- Ne használj külső tudást olyan információ megadására,
+  amely nem található meg a megadott szövegrészletekben.
+
+- Ha a kérdésre nem adható biztos válasz a megadott
+  kontextus alapján, mondd azt, hogy:
+  "A rendelkezésre álló HKR-részletek alapján erre nem tudok
+  biztos választ adni."
+
+- Ha lehetséges, hivatkozz a releváns HKR-részletre.
+
+- Ne állíts olyat, ami ellentmond a megadott szövegrészleteknek.
+
+- A választ magyar nyelven add meg.
+
+KONTEXTUS:
+
+{context}
+
+HALLGATÓ KÉRDÉSE:
+
+{question}
+
+VÁLASZ:
+"""
+)
 
 
 # ------------------------------------------------------------------
-# Felület
+# Használati napló
 # ------------------------------------------------------------------
-st.title("🎓 BGE Hallgatói Követelményrendszer - Asszisztens")
-st.caption("Szakdolgozati kutatási prototípus - kérdezz a BGE HKR-ről!")
+def naplozas(kerdes, valasz):
 
-with st.sidebar:
-    st.subheader("Tesztelési adatok")
-    tesztalany_azonosito = st.text_input(
-        "Add meg az azonosítódat (amit a konzulensedtől/kutatótól kaptál)",
-        value="",
-        help="Ez segít összekötni a válaszaidat a UX-kérdőíveddel, anonim módon.",
-    )
-    st.markdown("---")
-    st.markdown(
-        "Ez egy kutatási célú prototípus. A kitöltés és tesztelés anonim. "
-        "A rendszer a kutatás érdekében a feltett kérdéseket naplózza, "
-        "de személyes adatokat nem rögzít. A válaszok nem helyettesítik "
-        "a Tanulmányi Hivatal hivatalos tájékoztatását."
-    )
+    try:
 
-if "elozmenyek" not in st.session_state:
-    st.session_state.elozmenyek = []
+        fajl_lett_letrehozva = os.path.exists(LOG_FAJL)
 
-# Korábbi üzenetek megjelenítése
-for uzenet in st.session_state.elozmenyek:
-    with st.chat_message(uzenet["szerep"]):
-        st.markdown(uzenet["tartalom"])
+        with open(
+            LOG_FAJL,
+            "a",
+            newline="",
+            encoding="utf-8"
+        ) as fajl:
 
-# Új kérdés bekérése
-kerdes = st.chat_input("Írd be a kérdésed a BGE HKR-ről...")
+            iro = csv.writer(fajl)
 
+            if not fajl_lett_letrehozva:
+
+                iro.writerow(
+                    [
+                        "idopont",
+                        "kerdes",
+                        "valasz"
+                    ]
+                )
+
+            iro.writerow(
+                [
+                    datetime.now().strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    ),
+                    kerdes,
+                    valasz
+                ]
+            )
+
+    except Exception as e:
+
+        print(
+            f"Naplózási hiba: {e}"
+        )
+
+
+# ------------------------------------------------------------------
+# Oldal címe
+# ------------------------------------------------------------------
+st.title("🎓 BGE HKR Asszisztens")
+
+st.markdown(
+    """
+Ez az alkalmazás a Budapesti Gazdasági Egyetem
+Hallgatói Követelményrendszerének (HKR) dokumentumai
+alapján válaszol a hallgatói kérdésekre.
+
+A válaszok RAG-alapú keresés és Gemini nyelvi modell
+segítségével készülnek.
+"""
+)
+
+
+# ------------------------------------------------------------------
+# Kérdés bevitele
+# ------------------------------------------------------------------
+kerdes = st.chat_input(
+    "Írd be a kérdésedet..."
+)
+
+
+# ------------------------------------------------------------------
+# Kérdés feldolgozása
+# ------------------------------------------------------------------
 if kerdes:
-    if not tesztalany_azonosito:
-        st.warning("Kérlek, add meg az azonosítódat a bal oldali sávban, mielőtt kérdezel!")
-        st.stop()
 
-    st.session_state.elozmenyek.append({"szerep": "user", "tartalom": kerdes})
+    # --------------------------------------------------------------
+    # Felhasználói kérdés megjelenítése
+    # --------------------------------------------------------------
     with st.chat_message("user"):
+
         st.markdown(kerdes)
 
+
+    # --------------------------------------------------------------
+    # Asszisztens válasza
+    # --------------------------------------------------------------
     with st.chat_message("assistant"):
-        with st.spinner("Keresek a HKR-ben..."):
-            kezdo_ido = time.time()
 
-            talalt_szegmensek = vektortár.similarity_search(kerdes, k=TOP_K)
-            kontextus = "\n\n".join(sz.page_content for sz in talalt_szegmensek)
-            prompt = PROMPT_SABLON.format(kontextus=kontextus, kerdes=kerdes)
+        with st.spinner(
+            "Keresés a HKR dokumentumban..."
+        ):
 
-            if _LANGSMITH_AKTIV:
-                valasz = llm.invoke(
-                    prompt,
-                    config={
-                        "callbacks": [_langsmith_tracer],
-                        "metadata": {"tesztalany_azonosito": tesztalany_azonosito},
-                        "tags": [tesztalany_azonosito],
-                    },
-                )
-            else:
-                valasz = llm.invoke(prompt)
+            try:
 
-            if isinstance(valasz.content, str):
-                valasz_szoveg = valasz.content
-            else:
-                valasz_szoveg = "".join(
-                    resz.get("text", "") for resz in valasz.content if isinstance(resz, dict)
+                # --------------------------------------------------
+                # Hasonló dokumentumrészek keresése
+                # --------------------------------------------------
+                dokumentumok = vektortár.similarity_search(
+                    kerdes,
+                    k=TOP_K
                 )
 
-            valaszido = time.time() - kezdo_ido
 
-        st.markdown(valasz_szoveg)
-        st.caption(f"Válaszidő: {valaszido:.1f} másodperc")
+                # --------------------------------------------------
+                # Ellenőrzés
+                # --------------------------------------------------
+                if not dokumentumok:
 
-    st.session_state.elozmenyek.append({"szerep": "assistant", "tartalom": valasz_szoveg})
-    naplozas(kerdes, valaszido, tesztalany_azonosito)
+                    valasz = (
+                        "A rendelkezésre álló HKR-dokumentumok "
+                        "alapján nem találtam releváns információt."
+                    )
+
+                    st.warning(valasz)
+
+                    naplozas(
+                        kerdes,
+                        valasz
+                    )
+
+                else:
+
+                    # ----------------------------------------------
+                    # Kontextus összeállítása
+                    # ----------------------------------------------
+                    kontextus_reszek = []
+
+                    for dokumentum in dokumentumok:
+
+                        szoveg = dokumentum.page_content
+
+                        metadata = dokumentum.metadata
+
+                        forras = metadata.get(
+                            "source",
+                            "HKR dokumentum"
+                        )
+
+                        oldal = metadata.get(
+                            "page",
+                            None
+                        )
+
+                        if oldal is not None:
+
+                            forras_info = (
+                                f"{forras}, oldal: {oldal}"
+                            )
+
+                        else:
+
+                            forras_info = str(
+                                forras
+                            )
+
+                        kontextus_reszek.append(
+                            f"[Forrás: {forras_info}]\n"
+                            f"{szoveg}"
+                        )
+
+
+                    context = "\n\n---\n\n".join(
+                        kontextus_reszek
+                    )
+
+
+                    # ----------------------------------------------
+                    # Prompt elkészítése
+                    # ----------------------------------------------
+                    prompt = PROMPT_SABLON.invoke(
+                        {
+                            "context": context,
+                            "question": kerdes
+                        }
+                    )
+
+
+                    # ----------------------------------------------
+                    # Gemini meghívása
+                    # ----------------------------------------------
+                    if _LANGSMITH_AKTIV:
+
+                        valasz_obj = llm.invoke(
+                            prompt,
+                            config={
+                                "callbacks": [
+                                    _langsmith_tracer
+                                ]
+                            }
+                        )
+
+                    else:
+
+                        valasz_obj = llm.invoke(
+                            prompt
+                        )
+
+
+                    # ----------------------------------------------
+                    # Válasz szövegének kinyerése
+                    # ----------------------------------------------
+                    valasz = valasz_obj.content
+
+
+                    # ----------------------------------------------
+                    # Válasz megjelenítése
+                    # ----------------------------------------------
+                    st.markdown(valasz)
+
+
+                    # ----------------------------------------------
+                    # Források megjelenítése
+                    # ----------------------------------------------
+                    with st.expander(
+                        "📚 Felhasznált HKR-részletek"
+                    ):
+
+                        for i, dokumentum in enumerate(
+                            dokumentumok,
+                            start=1
+                        ):
+
+                            metadata = dokumentum.metadata
+
+                            forras = metadata.get(
+                                "source",
+                                "HKR dokumentum"
+                            )
+
+                            oldal = metadata.get(
+                                "page",
+                                None
+                            )
+
+                            st.markdown(
+                                f"**{i}. forrás:** "
+                                f"{forras}"
+                            )
+
+                            if oldal is not None:
+
+                                st.caption(
+                                    f"Oldal: {oldal}"
+                                )
+
+                            st.text(
+                                dokumentum.page_content
+                            )
+
+                            if i < len(dokumentumok):
+
+                                st.divider()
+
+
+                    # ----------------------------------------------
+                    # Naplózás
+                    # ----------------------------------------------
+                    naplozas(
+                        kerdes,
+                        valasz
+                    )
+
+
+            except Exception as e:
+
+                # --------------------------------------------------
+                # Hiba kezelése
+                # --------------------------------------------------
+                hiba_szoveg = str(e)
+
+                st.error(
+                    "Hiba történt a kérdés feldolgozása közben."
+                )
+
+                with st.expander(
+                    "Technikai részletek"
+                ):
+
+                    st.code(
+                        hiba_szoveg
+                    )
+
+                naplozas(
+                    kerdes,
+                    f"HIBA: {hiba_szoveg}"
+                )
 
 
 # ------------------------------------------------------------------
-# Admin panel
+# Oldalsáv
 # ------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("---")
-    with st.expander("🔒 Admin"):
-        admin_jelszo = st.text_input("Jelszó", type="password", key="admin_jelszo")
-        elvart_jelszo = os.getenv("ADMIN_JELSZO", "") or st.secrets.get("ADMIN_JELSZO", "")
 
-        if admin_jelszo and elvart_jelszo and admin_jelszo == elvart_jelszo:
-            if os.path.exists(LOG_FAJL):
-                with open(LOG_FAJL, "rb") as f:
-                    st.download_button(
-                        label="📥 Napló letöltése (CSV)",
-                        data=f,
-                        file_name="hasznalati_naplo.csv",
-                        mime="text/csv",
-                    )
-                import pandas as pd
-                df = pd.read_csv(LOG_FAJL)
-                st.caption(f"Eddig {len(df)} kérdés-válasz páros érkezett.")
-                st.dataframe(df.tail(10))
-            else:
-                st.info("Még nincs naplózott adat.")
-        elif admin_jelszo:
-            st.error("Hibás jelszó.")
+    st.header("ℹ️ Az alkalmazásról")
+
+    st.write(
+        """
+Ez a prototípus a BGE Hallgatói
+Követelményrendszerét használja
+tudásbázisként.
+
+A rendszer működése:
+
+1. A hallgató kérdést tesz fel.
+2. A rendszer releváns HKR-részleteket keres.
+3. A megtalált szövegrészeket a Gemini modell kapja meg.
+4. A modell ezek alapján készíti el a választ.
+        """
+    )
+
+    st.divider()
+
+    st.caption(
+        f"Top-K keresési érték: {TOP_K}"
+    )
+
+    if _LANGSMITH_AKTIV:
+
+        st.success(
+            "LangSmith: aktív"
+        )
+
+    else:
+
+        st.info(
+            "LangSmith: nincs bekapcsolva"
+        )
