@@ -1,19 +1,13 @@
 """
-BGE HKR RAG-chatbot - Streamlit felület (Gemini-verzió)
-
-Ez a fájl a szakdolgozat prototípusának éles, hallgatók által
-tesztelhető felülete. A vektortárat (chroma_db mappa) előre el kell
-készíteni a 01_index_epites_es_teszt.ipynb notebook futtatásával,
-mielőtt ezt az appot elindítanád.
-
+BGE HKR RAG-chatbot - Streamlit felület
+Szakdolgozati prototípus
 Futtatás: streamlit run app.py
 """
 
 # ------------------------------------------------------------------
-# FONTOS: ennek a blokknak a fájl LEGELEJÉN, minden más import előtt
+# FONTOS: Ennek a blokknak a fájl LEGELEJÉN, minden más import előtt
 # kell lennie! A Streamlit Cloud alap sqlite3-verziója túl régi a
-# ChromaDB-hez, ezért lecseréljük egy újabb, csomagolt verzióra
-# (pysqlite3-binary), mielőtt bármi más importálná a sqlite3-at.
+# ChromaDB-hez, ezért lecseréljük pysqlite3-binary-ra.
 # ------------------------------------------------------------------
 import sys
 try:
@@ -38,8 +32,6 @@ load_dotenv()
 
 # ------------------------------------------------------------------
 # LangSmith - explicit, kódból létrehozott kliens (EU-régió)
-# Nem környezeti változókra hagyatkozunk, hanem közvetlenül adjuk
-# meg az adatokat, hogy elkerüljük az elnevezés-inkonzisztenciákat.
 # ------------------------------------------------------------------
 _LANGSMITH_AKTIV = False
 _langsmith_tracer = None
@@ -66,13 +58,13 @@ if "LANGCHAIN_API_KEY" in st.secrets:
 # ------------------------------------------------------------------
 st.set_page_config(page_title="BGE HKR Asszisztens", page_icon="🎓", layout="centered")
 
-TOP_K = 5  # ugyanaz az érték, mint a notebookban - tartsd konzisztensen
+TOP_K = 5  # Visszanyert szegmensek száma
 LOG_FAJL = "hasznalati_naplo.csv"
 
 
 @st.cache_resource
 def betoltes():
-    """Egyszer töltődik be a vektortár és a modell, nem minden kérdésnél újra."""
+    """Egyszer töltődik be a vektortár és a modell."""
     embedding_modell = HuggingFaceEmbeddings(
         model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
     )
@@ -80,7 +72,10 @@ def betoltes():
         persist_directory="chroma_db",
         embedding_function=embedding_modell,
     )
+    
+    # A te Streamlit környezetedben futó modell beállítása
     llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0)
+    
     return vektortár, llm
 
 
@@ -111,11 +106,7 @@ Válasz:
 
 
 def naplozas(kerdes, valaszido_masodperc, tesztalany_azonosito):
-    """
-    Minden kérdés-válasz párost elment egy CSV-fájlba, hogy a
-    2.3-as fejezetben leírt időmérési metrikát utólag ki tudd
-    értékelni (nem kell manuálisan stoppert használnod).
-    """
+    """Minden kérdés-válasz párost elment CSV-fájlba."""
     uj_fajl = not os.path.exists(LOG_FAJL)
     with open(LOG_FAJL, "a", newline="", encoding="utf-8") as f:
         iro = csv.writer(f)
@@ -139,8 +130,9 @@ with st.sidebar:
     )
     st.markdown("---")
     st.markdown(
-        "Ez egy kutatási célú prototípus. A rendszer kizárólag a BGE "
-        "nyilvános szabályzatai alapján válaszol, és nem helyettesíti "
+        "Ez egy kutatási célú prototípus. A kitöltés és tesztelés anonim. "
+        "A rendszer a kutatás érdekében a feltett kérdéseket naplózza, "
+        "de személyes adatokat nem rögzít. A válaszok nem helyettesítik "
         "a Tanulmányi Hivatal hivatalos tájékoztatását."
     )
 
@@ -184,7 +176,6 @@ if kerdes:
             else:
                 valasz = llm.invoke(prompt)
 
-            # Gemini válasz kinyerése (kezeli ha szöveg vagy szótáras/listás formátum)
             if isinstance(valasz.content, str):
                 valasz_szoveg = valasz.content
             else:
@@ -198,13 +189,11 @@ if kerdes:
         st.caption(f"Válaszidő: {valaszido:.1f} másodperc")
 
     st.session_state.elozmenyek.append({"szerep": "assistant", "tartalom": valasz_szoveg})
-
-    # Automatikus naplózás a 2.3-as fejezet időmérési metrikájához
     naplozas(kerdes, valaszido, tesztalany_azonosito)
 
 
 # ------------------------------------------------------------------
-# Admin panel - ide te tudsz csak belépni, hogy letöltsd az adatokat
+# Admin panel
 # ------------------------------------------------------------------
 with st.sidebar:
     st.markdown("---")
