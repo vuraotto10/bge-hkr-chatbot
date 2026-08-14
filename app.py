@@ -1,4 +1,35 @@
-
+"""
+BGE HKR RAG-chatbot - Streamlit felület (Gemini-verzió)
+ 
+Ez a fájl a szakdolgozat prototípusának éles, hallgatók által
+tesztelhető felülete. A vektortárat (chroma_db mappa) előre el kell
+készíteni a 01_index_epites_es_teszt.ipynb notebook futtatásával,
+mielőtt ezt az appot elindítanád.
+ 
+Futtatás: streamlit run app.py
+"""
+ 
+# ------------------------------------------------------------------
+# FONTOS: ennek a blokknak a fájl LEGELEJÉN, minden más import előtt
+# kell lennie! A Streamlit Cloud alap sqlite3-verziója túl régi a
+# ChromaDB-hez, ezért lecseréljük egy újabb, csomagolt verzióra
+# (pysqlite3-binary), mielőtt bármi más importálná a sqlite3-at.
+# ------------------------------------------------------------------
+import sys
+try:
+    __import__("pysqlite3")
+    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+except ImportError:
+    pass
+ 
+import os
+import warnings
+import logging
+ 
+# Csak a zavaró, ártalmatlan figyelmeztető/telemetria-üzeneteket némítjuk el
+# a naplóban - ez nem befolyásolja a rendszer tényleges működését.
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 warnings.filterwarnings("ignore")
 logging.getLogger("chromadb").setLevel(logging.ERROR)
  
