@@ -213,10 +213,11 @@ if kerdes:
             kezdo_ido = time.time()
 
             talalt_szegmensek = vektortár.similarity_search(kerdes, k=TOP_K)
-            kontextus = "\n\n".join(
-                f"[{sz.metadata.get('paragrafus', 'ismeretlen')}. §]\n{sz.page_content}"
-                for sz in talalt_szegmensek
-            )
+            # ÍGY NÉZZEN KI A KONTEXTUS ÖSSZEFŰZÉS AZ APP.PY-BAN:
+kontextus = "\n\n".join(
+    f"[{sz.metadata.get('paragrafus', 'ismeretlen')}. §]\n{sz.page_content}"
+    for sz in talalt_szegmensek
+)
             prompt = PROMPT_SABLON.format(kontextus=kontextus, kerdes=kerdes)
 
             if _LANGSMITH_AKTIV:
